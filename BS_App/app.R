@@ -16,6 +16,9 @@ bsdat <- bsdat %>%
          Length_FT = Shape_Length)
 
 AOI <- c("All Counties", unique(bsdat$CountyName)) #extract county name options
+
+### -----
+# note to self: HUC selection needs to become reactive in order to allow for selection by HUC within selected county
 HUC <- c("All HUCs", unique(bsdat$HUC12Name)) #extract HUC name options
 features <- colnames(bsdat)
 features <- features[c(3, 6:7)]
@@ -64,7 +67,7 @@ ui <- fluidPage(
       column(4,
              radioButtons("attribute", "Select attribute to display", features))),
     hr(),
-    p("This will be a dynamic summary plot that updates in response to user selections from the dropdown menu above, and that does not have a horrifying color palette. I would like to get this formatted so that the user can toggle between showing the cumulative length of the feature of interest (ex: there are 75 miles of transport zone shoretype in Pierce County) and showing the percent of the total shoreline in eace county made up by each feature (ex: Accretion shoreforms account for 10% of Whatcom County shores)."),
+    p("This is a dynamic summary plot that updates in response to user selections by region and attribute."),
     #generate summary plot
     #this is a placeholder with an example plot; not yet dynamically updated
     plotOutput("summaryPlot"),
