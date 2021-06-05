@@ -1,6 +1,6 @@
 #
-# App drafted by Lauren Ode-Giles, 5/12/2021
-# ESCI 599 - Wk 08 Updates
+# App drafted by Lauren Ode-Giles, 5/26/2021
+# ESCI 599 - Wk 09 Updates
 
 library(shiny)
 library(ggplot2)
@@ -10,11 +10,15 @@ library(tidyverse)
 
 #data wrangling
 bsdat <- vroom::vroom("BSdf")
-bsdat$length_miles <- bsdat$Shape_Length/5280
+bsdat$Length_Miles <- bsdat$Shape_Length/5280
 bsdat <- bsdat %>%
-  rename(Armor = Armored)
+  rename(Armor = Armored,
+         Length_FT = Shape_Length)
 
 AOI <- c("All Counties", unique(bsdat$CountyName)) #extract county name options
+
+### -----
+# note to self: HUC selection needs to become reactive in order to allow for selection by HUC within selected county
 HUC <- c("All HUCs", unique(bsdat$HUC12Name)) #extract HUC name options
 features <- colnames(bsdat)
 features <- features[c(3, 6:7)]
@@ -37,7 +41,7 @@ bsdat$Armor <- plyr::revalue(bsdat$Armor, c("0"="Unarmored", "1" = "Armored"))
 armorSel <- sort(unique(bsdat$Armor))
 armorPal <- c("#50504f", "#9fdf75")
 
-# Define UI for application that draws a histogram
+# Define UI for application
 ui <- fluidPage(
 
     # Application title
@@ -50,43 +54,57 @@ ui <- fluidPage(
       To learn more about the project and explore the project story map, check out the Salish Sea Wiki page:"),
     a(href = "https://salishsearestoration.org/wiki/Beach_Strategies_for_Nearshore_Restoration_and_Protection_in_Puget_Sound", "Salish Sea Wiki - Beach Strategies"),
     hr(),
-    p("Select a region to explore, either by county or by hyrdrologic unit code (HUC) region name"),
+    p("Select Puget Sound counties to explore"),
     # Select regional attribute of interest
     fluidRow(
       column(4,
              selectInput(inputId = "region", 
                    label = "Select Region", 
-                   choices = AOI)),
-      column(4,
-             selectInput(inputId = "huc",
-                         label = "Select HUC name",
-                         choices = HUC))),
+                   choices = AOI,
+                   multiple = TRUE,
+                   selected = "All Counties"))),
     fluidRow(
       column(4,
              radioButtons("attribute", "Select attribute to display", features))),
     hr(),
-    p("This will be a dynamic summary plot that updates in response to user selections from the dropdown menu above, and that does not have a horrifying color palette. I would like to get this formatted so that the user can toggle between showing the cumulative length of the feature of interest (ex: there are 75 miles of transport zone shoretype in Pierce County) and showing the percent of the total shoreline in eace county made up by each feature (ex: Accretion shoreforms account for 10% of Whatcom County shores)."),
+    p("This is a dynamic summary plot that updates in response to user selections by region and attribute."),
     #generate summary plot
     #this is a placeholder with an example plot; not yet dynamically updated
     plotOutput("summaryPlot"),
     #generate summary table
     dataTableOutput("summaryTable"),
+    hr(),
+    p("Select hyrdrologic unit code (HUC) regions to explore within the selected county/counties"),
     
-    p("This will be a dynamic summary table that shows numerical values associated with the values shown in the 
-      above plot"))
+    fluidRow(
+      column(4,
+             selectInput(inputId = "huc",
+                         label = "Select HUC name",
+                         choices = HUC,
+                         multiple = TRUE,
+                         selected = "All HUCs"))),
+    #generate summary plots by selected HUC
+    plotOutput("hucPlot"))
 
 #define server-side functions
 server <- function(input, output, session) {
   
   #make a reactive to select a county
-  selCounty <- reactive(bsdat %>% filter(CountyName == input$region))
+  selCounty <- reactive({
+    if(input$region == "All Counties") {bsdat
+      }
+    else { 
+      bsdat %>% filter(CountyName == input$region)}})
   #make a reactive to select a huc
-  selHUC <- reactive(bsdat %>% filter(bsdat$HUC12Name == input$huc))
+  selHUC <- reactive({
+    if(input$huc == "All HUCs"){bsdat
+      }
+    else {bsdat %>% filter(HUC12Name == input$huc)}})
     
   #make a reactive summary plot
   output$summaryPlot <- renderPlot({
     if(input$attribute == "DCType") {
-      ggplot(bsdat, aes(fill = DCType, y = CountyName, x = length_miles))+
+      ggplot(selCounty(), aes(fill = DCType, y = CountyName, x = Length_Miles))+
         scale_fill_manual(values = dctypePal)+
         geom_bar(position = "stack", stat = "identity")+
         labs(x = "Cumulative drift cell length in County by direction (miles)",
@@ -94,7 +112,7 @@ server <- function(input, output, session) {
              title = "Drift cell type")+
         theme_bw()
     } else if(input$attribute == "Shoretype") {
-      ggplot(bsdat, aes(fill = Shoretype, y = CountyName, x = length_miles))+
+      ggplot(selCounty(), aes(fill = Shoretype, y = CountyName, x = Length_Miles))+
         scale_fill_manual(values = stypePal)+
         geom_bar(position = "stack", stat = "identity")+
         labs(x = "Cumulative shoretype length in County (miles)",
@@ -102,7 +120,7 @@ server <- function(input, output, session) {
              title = "Shoretype")+
         theme_bw()
     } else {
-      ggplot(bsdat, aes(fill = Armor, y = CountyName, x = length_miles))+
+      ggplot(selCounty(), aes(fill = Armor, y = CountyName, x = Length_Miles))+
         scale_fill_manual(values = armorPal)+
         geom_bar(position = "stack", stat = "identity")+
         labs(x = "Cumulative shore length (armored and unarmored) in County (miles)",
@@ -112,7 +130,36 @@ server <- function(input, output, session) {
     }
       }, res = 96)
   #make summary table
-  output$summaryTable <- renderDataTable(bsdat[,2:25], options = list(pageLength = 5))
+  output$summaryTable <- renderDataTable(selCounty()[,c(2:4, 6:7, 20, 22, 24)], options = list(pageLength = 5))
+  
+  #make summary HUC plots
+  output$hucPlot <- renderPlot({
+    if(input$attribute == "DCType") {
+      ggplot(selHUC(), aes(fill = DCType, y = HUC12Name, x = Length_Miles))+
+        scale_fill_manual(values = dctypePal)+
+        geom_bar(position = "stack", stat = "identity")+
+        labs(x = "Cumulative drift cell length in HUC by direction (miles)",
+             y = "HUC",
+             title = "Drift cell type")+
+        theme_bw()
+    } else if(input$attribute == "Shoretype") {
+      ggplot(selHUC(), aes(fill = Shoretype, y = HUC12Name, x = Length_Miles))+
+        scale_fill_manual(values = stypePal)+
+        geom_bar(position = "stack", stat = "identity")+
+        labs(x = "Cumulative shoretype length in HUC (miles)",
+             y = "HUC",
+             title = "Shoretype")+
+        theme_bw()
+    } else {
+      ggplot(selHUC(), aes(fill = Armor, y = HUC12Name, x = Length_Miles))+
+        scale_fill_manual(values = armorPal)+
+        geom_bar(position = "stack", stat = "identity")+
+        labs(x = "Cumulative shore length (armored and unarmored) in HUC (miles)",
+             y = "HUC",
+             title = "Shore armor presence/absence")+
+        theme_bw()
+    }
+  }, res = 96)
 
 }
 
